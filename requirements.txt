@@ -1,0 +1,15 @@
+# AI Chatbot System - Python Dependencies
+# Python 3.8+ required
+
+# FastAPI Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Google Gemini API
+google-generativeai==0.3.2
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# HTTP Requests
+requests==2.31.0
