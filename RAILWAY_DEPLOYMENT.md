@@ -1,4 +1,4 @@
-# 🚂 Railway Deployment Kılavuzu
+# 🚂 Railway Deployment Kılavuzu (Production: kremna-production.up.railway.app)
 
 ## Hızlı Başlangıç
 
@@ -28,24 +28,25 @@ GEMINI_API_KEY=your_valid_gemini_api_key_here
 ```
 
 ### 4. Domain
-Railway otomatik `xxx.up.railway.app` domain verir. 
+Production domain: **https://kremna-production.up.railway.app**
 
-**Settings** → **Public Networking** → Domain'i kopyalayın.
+- Public Networking: Metal Edge, Port 8080 (URL'de port belirtmeye gerek yok)
+- Private Networking: `kremna.railway.internal` (servisler arası dahili iletişim)
 
-### 5. Test Et
-```
-https://YOUR-APP.up.railway.app/
-```
+### 5. Hızlı Test
+- Ana sayfa: https://kremna-production.up.railway.app/
+- Health check: `GET /` (chatbot.html döner)
 
 ---
 
 ## 📋 Deployment Checklist
 
-- [x] Dockerfile PORT env variable kullanıyor
-- [x] main_receiver.py PORT env variable'dan okuyor
-- [x] .railwayignore gereksiz dosyaları hariç tutuyor
-- [ ] Railway'e GEMINI_API_KEY eklenmiş
-- [ ] Agent config ilk deploy sonrası POST edilecek
+- [x] Python runtime: `python@3.13.11` (Railway)
+- [x] Başlatma komutu (Procfile): `web: cd main && uvicorn main_receiver:app --host 0.0.0.0 --port ${PORT:-8080}`
+- [x] `PORT` ortam değişkeni Railway tarafından otomatik set edilir
+- [x] `GEMINI_API_KEY` Railway Variables altında ekli
+- [x] Deployment başarılı (Europe-West4, 1 replica)
+- [ ] Test ekibi için agent config POST edildi
 
 ---
 
@@ -65,9 +66,9 @@ https://YOUR-APP.up.railway.app/
 **Çözümler:**
 
 ### Seçenek 1: Agent Config'i Her Deploy'da Kaydet
-Deploy sonrası bu komutu çalıştırın:
+Deploy sonrası (ve her yeniden başlatma sonrası) agent konfigürasyonunu kaydetmek için:
 ```bash
-curl -X POST https://YOUR-APP.up.railway.app/agent_config \
+curl -X POST https://kremna-production.up.railway.app/agent_config \
   -H "Content-Type: application/json" \
   -d '{
     "agentId": "agent_8823_xyz",
@@ -111,14 +112,13 @@ $config = @{
     }
 } | ConvertTo-Json -Depth 10
 
-Invoke-RestMethod -Method Post -Uri "https://YOUR-APP.up.railway.app/agent_config" `
+Invoke-RestMethod -Method Post -Uri "https://kremna-production.up.railway.app/agent_config" `
   -ContentType 'application/json; charset=utf-8' -Body $config
 ```
 
 ### Test
-```
-https://YOUR-APP.up.railway.app/
-```
+- Ana sayfa: https://kremna-production.up.railway.app/
+- Postman/cURL ile hızlı test örnekleri aşağıda
 
 ---
 
@@ -185,7 +185,32 @@ Agent bulunamadı: agent_8823_xyz
 
 ---
 
-**Deploy ettikten sonra bu komutu çalıştırmayı unutmayın:**
+## 🔬 Test Ekibi için Hızlı Komutlar
+
+Aşağıdaki komutlar production domain üzerinde test içindir.
+
+1) Agent konfigürasyonu kaydet (repo içindeki örnek dosya):
 ```bash
-curl -X POST https://YOUR-APP.up.railway.app/agent_config -H "Content-Type: application/json" -d @register_agent.json
+curl -X POST https://kremna-production.up.railway.app/agent_config \
+  -H "Content-Type: application/json" \
+  -d @agent_8823_config.json
 ```
+
+2) Sohbet isteği gönder (örnek):
+```bash
+curl -X POST https://kremna-production.up.railway.app/chat \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d @test_chat_request.json
+```
+
+3) Eski formatla persona ekleme (opsiyonel/geriye dönük):
+```bash
+curl -X POST https://kremna-production.up.railway.app/persona \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Yardımcı Asistan","tone":"Arkadaş canlısı","constraints":"Kısa cevaplar ver"}'
+```
+
+Notlar:
+- `GEMINI_API_KEY` Railway Variables altında tanımlı olmalıdır; aksi halde `/chat` çağrıları hata döner.
+- `/` endpointi HTML döner; API için `POST /agent_config` ve `POST /chat` kullanılmalıdır.
+- Production ortamı: Europe-West4, 1 replica.

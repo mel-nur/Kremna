@@ -14,7 +14,8 @@ import uvicorn
 
 import sys
 sys.path.append("..")
-import sqlite3
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -49,49 +50,66 @@ def serve_chatbot():
     return FileResponse(str(WEB_UI_DIR / "chatbot.html"))
 
 
-# Basit SQLite bağlantısı (dosya: personas.db)
-DB_PATH = "../personas.db"
+# --------------------------------------------------
+# PostgreSQL Bağlantısı (Railway uyumlu)
+# --------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Eski personas tablosu (geriye dönük uyumluluk için)
-    c.execute('''CREATE TABLE IF NOT EXISTS personas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        tone TEXT,
-        constraints TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # Yeni agent_configurations tablosu (Dashboard'dan gelen veriler)
-    c.execute('''CREATE TABLE IF NOT EXISTS agent_configurations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        agent_id TEXT UNIQUE NOT NULL,
-        persona_title TEXT,
-        tone TEXT,
-        rules TEXT,
-        prohibited_topics TEXT,
-        initial_context TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # Sohbet geçmişi tablosu (artık kullanılmıyor, API'den gelecek)
-    c.execute('''CREATE TABLE IF NOT EXISTS chat_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        persona_id INTEGER,
-        role TEXT,
-        message TEXT,
-        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(persona_id) REFERENCES personas(id)
-    )''')
-    
-    conn.commit()
-    conn.close()
+# Railway PostgreSQL URL'i düzelt (psycopg2 için)
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-init_db()
+# Eğer DATABASE_URL yoksa SQLite'a geri dön (local development)
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///../personas.db"
+    print("⚠️ DATABASE_URL bulunamadı, SQLite kullanılıyor (local mode)")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# SQLAlchemy Modelleri
+class Persona(Base):
+    __tablename__ = "personas"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    tone = Column(Text)
+    constraints = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AgentConfiguration(Base):
+    __tablename__ = "agent_configurations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(String(255), unique=True, nullable=False, index=True)
+    persona_title = Column(Text)
+    tone = Column(Text)
+    rules = Column(Text)
+    prohibited_topics = Column(Text)
+    initial_context = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ChatHistory(Base):
+    __tablename__ = "chat_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    persona_id = Column(Integer)
+    role = Column(String(50))
+    message = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+# Veritabanı tablolarını oluştur
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    """Database session dependency"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 @app.post("/persona")
 async def create_persona(request: Request):
@@ -99,23 +117,32 @@ async def create_persona(request: Request):
     Persona JSON'u alır, DB'ye kaydeder ve id döner.
     (Geriye dönük uyumluluk için)
     """
+    db = SessionLocal()
     try:
         data = await request.json()
         name = data.get("name")
         tone = data.get("tone")
         constraints = data.get("constraints")
+        
         if not name:
             return JSONResponse(content={"status": "error", "detail": "name zorunlu"}, status_code=400)
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("INSERT INTO personas (name, tone, constraints, created_at) VALUES (?, ?, ?, ?)",
-                  (name, tone, constraints, datetime.now().isoformat()))
-        persona_id = c.lastrowid
-        conn.commit()
-        conn.close()
-        return JSONResponse(content={"status": "success", "persona_id": persona_id})
+        
+        persona = Persona(
+            name=name,
+            tone=tone,
+            constraints=constraints,
+            created_at=datetime.utcnow()
+        )
+        db.add(persona)
+        db.commit()
+        db.refresh(persona)
+        
+        return JSONResponse(content={"status": "success", "persona_id": persona.id})
     except Exception as e:
+        db.rollback()
         return JSONResponse(content={"status": "error", "detail": str(e)}, status_code=500)
+    finally:
+        db.close()
 
 
 @app.post("/agent_config")
@@ -137,6 +164,7 @@ async def save_agent_config(request: Request):
         }
     }
     """
+    db = SessionLocal()
     try:
         data = await request.json()
         agent_id = data.get("agentId")
@@ -153,36 +181,46 @@ async def save_agent_config(request: Request):
         prohibited_topics = ", ".join(model_instructions.get("prohibited_topics", []))
         initial_context_str = "\n".join([f"{k}: {v}" for k, v in initial_context.items()])
         
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
+        # Mevcut agent'ı bul veya yeni oluştur
+        agent = db.query(AgentConfiguration).filter(AgentConfiguration.agent_id == agent_id).first()
         
-        # Upsert (varsa güncelle, yoksa ekle)
-        c.execute("""
-            INSERT INTO agent_configurations (agent_id, persona_title, tone, rules, prohibited_topics, initial_context, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(agent_id) DO UPDATE SET
-                persona_title = excluded.persona_title,
-                tone = excluded.tone,
-                rules = excluded.rules,
-                prohibited_topics = excluded.prohibited_topics,
-                initial_context = excluded.initial_context,
-                updated_at = excluded.updated_at
-        """, (agent_id, persona_title, tone, rules, prohibited_topics, initial_context_str, 
-              datetime.now().isoformat(), datetime.now().isoformat()))
+        if agent:
+            # Güncelle
+            agent.persona_title = persona_title
+            agent.tone = tone
+            agent.rules = rules
+            agent.prohibited_topics = prohibited_topics
+            agent.initial_context = initial_context_str
+            agent.updated_at = datetime.utcnow()
+        else:
+            # Yeni oluştur
+            agent = AgentConfiguration(
+                agent_id=agent_id,
+                persona_title=persona_title,
+                tone=tone,
+                rules=rules,
+                prohibited_topics=prohibited_topics,
+                initial_context=initial_context_str,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(agent)
         
-        conn.commit()
-        conn.close()
+        db.commit()
         
         return JSONResponse(
             content={"status": "success", "agent_id": agent_id, "message": "Konfigürasyon kaydedildi"},
             media_type="application/json; charset=utf-8"
         )
     except Exception as e:
+        db.rollback()
         return JSONResponse(
             content={"status": "error", "detail": str(e)}, 
             status_code=500,
             media_type="application/json; charset=utf-8"
         )
+    finally:
+        db.close()
 
 
 @app.post("/chat")
@@ -248,48 +286,40 @@ async def chat_with_agent(request: Request):
                 "detail": "agent_id ve user_message zorunlu"
             }, status_code=400)
         
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        
-        # Agent konfigürasyonunu çek
-        c.execute("""
-            SELECT agent_id, persona_title, tone, rules, prohibited_topics, initial_context 
-            FROM agent_configurations 
-            WHERE agent_id = ?
-        """, (agent_id,))
-        row = c.fetchone()
-        
-        # Eğer agent_configurations'da yoksa, eski personas tablosuna bak
-        if not row:
-            c.execute("SELECT id, name, tone, constraints FROM personas WHERE id = ?", (agent_id,))
-            old_row = c.fetchone()
-            if old_row:
-                # Eski formatı yeni formata çevir
-                agent_config = {
-                    "agent_id": str(old_row[0]),
-                    "persona_title": old_row[1],
-                    "tone": old_row[2] or "",
-                    "rules": old_row[3] or "",
-                    "prohibited_topics": "",
-                    "initial_context": ""
-                }
+        db = SessionLocal()
+        try:
+            # Agent konfigürasyonunu çek
+            agent = db.query(AgentConfiguration).filter(AgentConfiguration.agent_id == agent_id).first()
+            
+            # Eğer agent_configurations'da yoksa, eski personas tablosuna bak
+            if not agent:
+                persona = db.query(Persona).filter(Persona.id == int(agent_id) if str(agent_id).isdigit() else -1).first()
+                if persona:
+                    # Eski formatı yeni formata çevir
+                    agent_config = {
+                        "agent_id": str(persona.id),
+                        "persona_title": persona.name,
+                        "tone": persona.tone or "",
+                        "rules": persona.constraints or "",
+                        "prohibited_topics": "",
+                        "initial_context": ""
+                    }
+                else:
+                    return JSONResponse(content={
+                        "status": "error", 
+                        "detail": f"Agent bulunamadı: {agent_id}"
+                    }, status_code=404)
             else:
-                conn.close()
-                return JSONResponse(content={
-                    "status": "error", 
-                    "detail": f"Agent bulunamadı: {agent_id}"
-                }, status_code=404)
-        else:
-            agent_config = {
-                "agent_id": row[0],
-                "persona_title": row[1],
-                "tone": row[2],
-                "rules": row[3],
-                "prohibited_topics": row[4],
-                "initial_context": row[5]
-            }
-        
-        conn.close()
+                agent_config = {
+                    "agent_id": agent.agent_id,
+                    "persona_title": agent.persona_title,
+                    "tone": agent.tone,
+                    "rules": agent.rules,
+                    "prohibited_topics": agent.prohibited_topics,
+                    "initial_context": agent.initial_context
+                }
+        finally:
+            db.close()
         
         # Gemini API anahtarını al
         gemini_api_key = os.getenv("GEMINI_API_KEY")
