@@ -401,6 +401,11 @@
                 hideTypingIndicator();
 
                 if (data.status === 'success') {
+                    // Gerçek kullanılan agenti header'da göster
+                    if (data.metadata && data.metadata.agent_id) {
+                        document.getElementById('agentId').textContent = data.metadata.agent_id;
+                    }
+                    
                     // AI yanıtını ekle
                     addMessage('assistant', data.reply, data.metadata);
                     
