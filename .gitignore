@@ -6,3 +6,27 @@ __pycache__/
 .vscode/
 venv/
 .venv/
+
+# Python build metadata
+*.pyo
+*.pyd
+*.egg-info/
+
+# Coverage and test cache
+.coverage
+.coverage.*
+.pytest_cache/
+
+# IDE/editor
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secret patterns
+*api_key*.json
+
+# Build/dist
+build/
+dist/

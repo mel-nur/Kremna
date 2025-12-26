@@ -79,7 +79,8 @@ curl -X POST https://kremna-production.up.railway.app/agent_config \
       "prohibited_topics": ["Rakip fiyatları"]
     },
     "initial_context": {
-      "company_slogan": "Kalite Asla Tesadüf Değildir"
+      "company_slogan": "Kalite Asla Tesadüf Değildir",
+      "pricing_rationale": "Fiyatlandırma; kullanım hacmi (token), aktif kullanıcı sayısı ve ek özelliklere göre kademeli olarak belirlenir."
     }
   }'
 ```
@@ -108,7 +109,8 @@ $config = @{
       prohibited_topics = @("Rakip fiyatları")
     }
     initial_context = @{
-      company_slogan = "Kalite Asla Tesadüf Değildir"
+      company_slogan = "Kalite Asla Tesadüf Değildir",
+      pricing_rationale = "Fiyatlandırma; kullanım hacmi (token), aktif kullanıcı sayısı ve ek özelliklere göre kademeli olarak belirlenir."
     }
 } | ConvertTo-Json -Depth 10
 
