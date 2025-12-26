@@ -12,6 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 from typing import List, Dict, Any
+# #####M demo/test helpers
+import json
 import uvicorn
 
 import sys
@@ -133,6 +135,24 @@ def init_db():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+
+        ##############################################
+
+        # #####M Demo agent (PostgreSQL) - insert if missing
+        c.execute("""
+            INSERT INTO agent_configurations
+                (agent_id, persona_title, tone, rules, prohibited_topics, initial_context, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (agent_id) DO NOTHING
+        """, (
+            "demo-agent",
+            "Demo Müşteri Temsilcisi",
+            "Samimi ve yardımsever",
+            json.dumps(["Türkçe cevap ver", "Kısa ve öz ol"]),
+            json.dumps([]),
+            json.dumps({"company_slogan": "Demo Şirket", "pricing_rationale": "Test amaçlı"})
+        ))
     else:
         # SQLite tabloları
         c.execute('''CREATE TABLE IF NOT EXISTS personas (
@@ -163,6 +183,23 @@ def init_db():
             timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(persona_id) REFERENCES personas(id)
         )''')
+
+        # #####M Demo agent (SQLite) - insert if missing
+        c.execute('''
+            INSERT OR IGNORE INTO agent_configurations
+                (agent_id, persona_title, tone, rules, prohibited_topics, initial_context)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            "demo-agent",
+            "Demo Müşteri Temsilcisi",
+            "Samimi ve yardımsever",
+            json.dumps(["Türkçe cevap ver", "Kısa ve öz ol"]),
+            json.dumps([]),
+            json.dumps({"company_slogan": "Demo Şirket", "pricing_rationale": "Test amaçlı"})
+        ))
+
+    conn.commit()
+    conn.close()
 
     conn.commit()
     conn.close()
@@ -367,10 +404,19 @@ async def chat_with_agent(request: Request):
         """, (agent_id,))
         row = c.fetchone()
 
-        # Eğer agent_configurations'da yoksa, eski personas tablosuna bak
+        # #####M Eğer agent_configurations'da yoksa, yalnızca legacy sayısal persona_id için personas tablosuna bak
         if not row:
-            c.execute(f"SELECT id, name, tone, constraints FROM personas WHERE id = {ph()}", (agent_id,))
-            old_row = c.fetchone()
+            legacy_persona_id = None
+            try:
+                legacy_persona_id = int(agent_id)
+            except (TypeError, ValueError):
+                legacy_persona_id = None
+
+            old_row = None
+            if legacy_persona_id is not None:
+                c.execute(f"SELECT id, name, tone, constraints FROM personas WHERE id = {ph()}", (legacy_persona_id,))
+                old_row = c.fetchone()
+
             if old_row:
                 agent_config = {
                     "agent_id": str(old_row[0]),
@@ -383,7 +429,10 @@ async def chat_with_agent(request: Request):
             else:
                 conn.close()
                 return JSONResponse(
-                    content={"status": "error", "detail": f"Agent bulunamadı: {agent_id}"},
+                    content={
+                        "status": "error",
+                        "detail": "Agent bulunamadı. Önce /agent_config ile kaydedin veya legacy numeric persona_id kullanın."
+                    },
                     status_code=404,
                     media_type="application/json; charset=utf-8"
                 )
