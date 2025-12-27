@@ -204,6 +204,105 @@ def init_db():
 init_db()
 
 # --------------------------------------------------
+# Agent listeleme ve detay endpoint'leri
+# --------------------------------------------------
+@app.get("/agents")
+def list_agents():
+    """Mevcut tüm agent'ları listeler"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT agent_id, persona_title, created_at
+        FROM agent_configurations
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    agents = [
+        {
+            "agent_id": row[0],
+            "persona_title": row[1],
+            "created_at": row[2]
+        }
+        for row in rows
+    ]
+
+    return {
+        "status": "success",
+        "count": len(agents),
+        "agents": agents
+    }
+
+
+@app.get("/agents/{agent_id}")
+def get_agent(agent_id: str):
+    """Belirli bir agent'ın detaylarını döner"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(f"""
+        SELECT agent_id, persona_title, tone, rules, prohibited_topics, initial_context
+        FROM agent_configurations
+        WHERE agent_id = {ph()}
+    """, (agent_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return JSONResponse(
+            content={"status": "error", "detail": "Agent bulunamadı"},
+            status_code=404,
+            media_type="application/json; charset=utf-8"
+        )
+
+    # JSON parsing helper: hem eski string hem yeni JSON formatını destekler
+    def safe_parse_json(field_value, default):
+        """JSON parse et, başarısızsa string veya default dön"""
+        if not field_value:
+            return default
+
+        try:
+            # JSON olarak parse etmeyi dene
+            parsed = json.loads(field_value)
+            return parsed
+        except (json.JSONDecodeError, TypeError):
+            # JSON değilse eski format
+            if isinstance(default, list):
+                # Liste bekleniyor: satır veya virgül ile ayır
+                field_str = str(field_value)
+                if '\n' in field_str:
+                    return [line.strip() for line in field_str.split('\n') if line.strip()]
+                elif ',' in field_str:
+                    return [item.strip() for item in field_str.split(',') if item.strip()]
+                else:
+                    return [field_str] if field_str else []
+            elif isinstance(default, dict):
+                # Dict bekleniyor: key:value formatını parse et
+                result = {}
+                for line in str(field_value).split('\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        result[key.strip()] = value.strip()
+                return result
+            else:
+                # String olarak dön
+                return str(field_value)
+
+    return {
+        "status": "success",
+        "agent": {
+            "agent_id": row[0],
+            "persona_title": row[1],
+            "tone": row[2] or "",
+            "rules": safe_parse_json(row[3], []),
+            "prohibited_topics": safe_parse_json(row[4], []),
+            "initial_context": safe_parse_json(row[5], {})
+        }
+    }
+
+
+# --------------------------------------------------
 # Persona endpoint (geriye dönük uyumluluk)
 # --------------------------------------------------
 @app.post("/persona")
