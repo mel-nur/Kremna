@@ -1,9 +1,11 @@
+<!-- YAZAN: Frontend Developer -->
 <!DOCTYPE html>
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Chatbot - Premium Müşteri Temsilcisi</title>
+    <!-- YAZAN: UI Designer -->
     <style>
         * {
             margin: 0;
@@ -417,6 +419,7 @@
         </div>
     </div>
 
+    <!-- YAZAN: Frontend Developer -->
     <script>
         const API_URL = '/chat';
         const AGENTS_API_URL = '/agents';
@@ -433,6 +436,7 @@
         let chatHistory = [];
         let availableAgents = [];
 
+        // YAZAN: Frontend Developer
         function addMessage(role, content, metadata = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
@@ -471,6 +475,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        // YAZAN: Frontend Developer
         function showTypingIndicator() {
             const typingDiv = document.createElement('div');
             typingDiv.className = 'message assistant';
@@ -488,6 +493,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        // YAZAN: Frontend Developer
         function hideTypingIndicator() {
             const typingIndicator = document.getElementById('typingIndicator');
             if (typingIndicator) {
@@ -495,6 +501,7 @@
             }
         }
 
+        // YAZAN: Frontend Developer
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message) return;
@@ -556,6 +563,7 @@
         }
 
         // Agent Modal Functions
+        // YAZAN: Frontend Developer
         async function loadAgents() {
             try {
                 agentListElement.innerHTML = '<div class="loading">Agent\'lar yükleniyor...</div>';
@@ -574,6 +582,7 @@
             }
         }
 
+        // YAZAN: Frontend Developer
         function renderAgentList() {
             if (availableAgents.length === 0) {
                 agentListElement.innerHTML = '<div class="loading">Henüz agent bulunmuyor</div>';
@@ -598,6 +607,7 @@
             });
         }
 
+        // YAZAN: Frontend Developer
         function selectAgent(newAgentId) {
             agentId = newAgentId;
             agentIdElement.textContent = newAgentId;
@@ -614,16 +624,19 @@
             `;
         }
 
+        // YAZAN: Frontend Developer
         function openAgentModal() {
             agentModal.classList.add('active');
             loadAgents();
         }
 
+        // YAZAN: Frontend Developer
         function closeAgentModal() {
             agentModal.classList.remove('active');
         }
 
         // Event listeners
+        // YAZAN: Frontend Developer
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
@@ -632,6 +645,7 @@
         });
 
         // Agent modal event listeners
+        // YAZAN: Frontend Developer
         agentIdElement.addEventListener('click', openAgentModal);
         closeModalBtn.addEventListener('click', closeAgentModal);
         agentModal.addEventListener('click', (e) => {
@@ -641,6 +655,7 @@
         });
 
         // Focus input on load
+        // YAZAN: Frontend Developer
         messageInput.focus();
     </script>
 </body>
