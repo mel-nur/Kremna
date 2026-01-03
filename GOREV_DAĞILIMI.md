@@ -14,6 +14,10 @@ Aşağıda, proje dosyalarında hangi kısımların hangi takım üyesi tarafın
   *Backend Developer*  
   `# YAZAN: Backend Developer`
 
+- **init_db ve /chat endpoint bakimi**  
+  *Melike*  
+  `# YAZAN: Melike`
+
 - **Google Gemini API entegrasyonu**  
   *Backend Developer*  
   `# YAZAN: Backend Developer`
@@ -78,9 +82,6 @@ Aşağıda, proje dosyalarında hangi kısımların hangi takım üyesi tarafın
   *QA Engineer*  
   `# YAZAN: QA Engineer`
 
-- **Tasarım dökümanları ve prototipler**  
-  *UI Designer*  
-  `# YAZAN: UI Designer`
 
 ---
 

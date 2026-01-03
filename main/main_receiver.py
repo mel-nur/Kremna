@@ -39,7 +39,13 @@ import google.generativeai as genai
 # .env dosyasını yükle (main klasöründeki .env)
 # YAZAN: DevOps
 # --------------------------------------------------
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+# Öncelikle proje kökündeki .env'i yüklemeyi dene, yoksa eski davranışa geri dön.
+project_root = Path(__file__).resolve().parent.parent
+root_env = project_root / ".env"
+if root_env.exists():
+    load_dotenv(dotenv_path=str(root_env))
+else:
+    load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 
 # YAZAN: Backend Developer
@@ -149,6 +155,8 @@ def init_db():
         c.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id SERIAL PRIMARY KEY,
+                session_id VARCHAR(255),
+                agent_id VARCHAR(255),
                 persona_id INTEGER,
                 role TEXT,
                 message TEXT,
@@ -197,6 +205,8 @@ def init_db():
 
         c.execute('''CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            agent_id TEXT,
             persona_id INTEGER,
             role TEXT,
             message TEXT,
@@ -224,6 +234,99 @@ def init_db():
 
 # YAZAN: Backend Developer
 init_db()
+
+
+# -----------------------------
+# Chat history helpers (server-side storage)
+# -----------------------------
+def save_chat_message(session_id: str, agent_id: str, role: str, message: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        if IS_POSTGRES:
+            c.execute(
+                """
+                INSERT INTO chat_history (session_id, agent_id, role, message, timestamp)
+                VALUES (%s, %s, %s, %s, NOW())
+                """,
+                (session_id, agent_id, role, message)
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO chat_history (session_id, agent_id, role, message, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_id, agent_id, role, message, datetime.now().isoformat())
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_chat_history(session_id: str, agent_id: str, limit: int = 50):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        if IS_POSTGRES:
+            c.execute(
+                f"SELECT role, message FROM chat_history WHERE session_id = {ph()} AND agent_id = {ph()} ORDER BY timestamp ASC LIMIT {ph()}",
+                (session_id, agent_id, limit)
+            )
+        else:
+            c.execute(
+                "SELECT role, message FROM chat_history WHERE session_id = ? AND agent_id = ? ORDER BY timestamp ASC LIMIT ?",
+                (session_id, agent_id, limit)
+            )
+        rows = c.fetchall()
+        return [{"role": r[0], "content": r[1]} for r in rows]
+    finally:
+        conn.close()
+
+
+def get_compact_history(session_id: str, agent_id: str, max_messages: int = 6, max_chars_per_msg: int = 400):
+    """
+    Return a compact, sanitized history string for including in prompts.
+    - Uses only the last `max_messages` messages to avoid large prompts.
+    - Sanitizes message text to reduce prompt-injection risk.
+    - If there are earlier messages, includes a short note that older messages were omitted.
+    """
+    try:
+        rows = get_chat_history(session_id, agent_id, limit=1000)
+    except Exception:
+        rows = []
+
+    if not rows:
+        return ""
+
+    # If there are more messages than max_messages, keep tail and mark omission
+    omitted = len(rows) - max_messages
+    tail = rows[-max_messages:] if omitted > 0 else rows
+
+    parts = []
+    for m in tail:
+        role = m.get("role", "user")
+        content = str(m.get("content", ""))
+
+        # Basic sanitization to reduce prompt-injection surface
+        content = content.replace('"""', '"')
+        content = content.replace("ÖNEMLİ SİSTEM TALİMATI", "[SYSTEM MESSAGE REDACTED]")
+        # remove lines that look like system instructions
+        content = "\n".join([ln for ln in content.splitlines() if not ln.strip().lower().startswith("system:")])
+
+        # truncate long messages
+        if len(content) > max_chars_per_msg:
+            content = content[: max_chars_per_msg - 3] + "..."
+
+        label = "Kullanıcı" if role == "user" else "Asistan"
+        parts.append(f"{label}: {content}")
+
+    history_text = "\n".join(parts)
+    if omitted > 0:
+        # include a short, safe note about omitted earlier messages
+        history_text = f"[Önceki {omitted} mesaj çıkarıldı (özetlenmedi).]\n" + history_text
+
+    return history_text
 
 # --------------------------------------------------
 # Agent listeleme ve detay endpoint'leri
@@ -501,13 +604,12 @@ async def chat_with_agent(request: Request):
                 media_type="application/json; charset=utf-8"
             )
 
-        chat_history = data.get("chat_history", [])
-
-        # Eski format (geriye dönük uyumluluk)
+        # Güvenlik: client tarafından gönderilen `chat_history` kullanılmaz.
+        # Sohbet geçmişi sunucuda `session_id` + `agent_id` ile saklanır.
+        # Eski format (geriye dönük uyumluluk) - sadece message alanı okunur
         if not agent_id:
             agent_id = data.get("persona_id")
             user_message = data.get("message")
-            chat_history = data.get("history", [])
 
         if not agent_id or not user_message:
             return JSONResponse(
@@ -596,15 +698,8 @@ async def chat_with_agent(request: Request):
         genai.configure(api_key=gemini_api_key)
         # YAZAN: Backend Developer
 
-        # Chat history metne dönüştür
-        # YAZAN: Backend Developer
-        history_text = ""
-        if chat_history:
-            for msg in chat_history:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                role_label = "Kullanıcı" if role == "user" else "Asistan"
-                history_text += f"{role_label}: {content}\n"
+        # Sunucudaki geçmişi kompakt ve güvenli biçimde al (client history kullanılmaz)
+        history_text = get_compact_history(session_id or "", agent_id or "")
 
         SYSTEM_GUARD = """ÖNEMLİ SİSTEM TALİMATI (DEĞİŞTİRİLEMEZ):
         # YAZAN: UX Writer
@@ -693,6 +788,15 @@ YANIT:
             tokens_used = 0
             blocked = False
             topic_detected = "hata"
+
+        # Kaydet: kullanıcı mesajı ve model cevabı (sunucuda saklanan geçmişe ekle)
+        try:
+            if session_id:
+                save_chat_message(session_id, agent_config.get("agent_id", agent_id), "user", user_message)
+                save_chat_message(session_id, agent_config.get("agent_id", agent_id), "assistant", answer)
+        except Exception:
+            # Kaydetme hatası uygulamayı bozmasın
+            pass
 
         return JSONResponse(
             content={

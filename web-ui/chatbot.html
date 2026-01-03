@@ -521,11 +521,10 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        agent_id: agentId,
-                        session_id: sessionId,
-                        user_message: message,
-                        chat_history: chatHistory
-                    })
+                            agent_id: agentId,
+                            session_id: sessionId,
+                            user_message: message
+                        })
                 });
 
                 const data = await response.json();
