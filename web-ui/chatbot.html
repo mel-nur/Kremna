@@ -421,8 +421,11 @@
 
     <!-- YAZAN: Frontend Developer -->
     <script>
-        const API_URL = '/chat';
-        const AGENTS_API_URL = '/agents';
+        // API Endpoint'leri
+        const API_URL = '/chat';  // Mesaj gönderme endpoint'i
+        const AGENTS_API_URL = '/agents';  // Agent listesi endpoint'i
+        
+        // DOM Elementleri
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
@@ -432,11 +435,18 @@
         const closeModalBtn = document.getElementById('closeModal');
         const agentListElement = document.getElementById('agentList');
 
-        let agentId = agentIdElement.textContent;
-        let chatHistory = [];
-        let availableAgents = [];
+        // Global state değişkenleri
+        let agentId = agentIdElement.textContent;  // Aktif agent ID
+        let chatHistory = [];  // LOCAL (sadece UI'da tutulur, sunucuya GÖNDERİLMEZ)
+        let availableAgents = [];  // Mevcut agent listesi
 
         // YAZAN: Frontend Developer
+        /**
+         * Chat alanına yeni mesaj ekler
+         * @param {string} role - "user" veya "assistant"
+         * @param {string} content - Mesaj içeriği
+         * @param {object} metadata - Opsiyonel metadata (agent_id, tokens, vb.)
+         */
         function addMessage(role, content, metadata = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
@@ -476,6 +486,10 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * "Yazıyor..." animasyonunu gösterir
+         * Sunucudan yanıt beklerken kullanıcıya görsek feedback sağlar
+         */
         function showTypingIndicator() {
             const typingDiv = document.createElement('div');
             typingDiv.className = 'message assistant';
@@ -494,6 +508,9 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * "Yazıyor..." animasyonunu kaldırır
+         */
         function hideTypingIndicator() {
             const typingIndicator = document.getElementById('typingIndicator');
             if (typingIndicator) {
@@ -502,6 +519,13 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * Kullanıcı mesajını sunucuya gönderir ve yanıtı ekranda gösterir
+         * 
+         * GÜVENLİK NOTU: chat_history artık sunucuya GÖNDERİLMEZ!
+         * Sadece agent_id, session_id ve user_message gönderilir.
+         * Geçmiş sunucu tarafında yönetilir.
+         */
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message) return;
@@ -515,6 +539,8 @@
             showTypingIndicator();
 
             try {
+                // Sunucuya POST isteği gönder
+                // NOT: chat_history gönderilmiyor (güvenlik)
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -532,15 +558,16 @@
                 hideTypingIndicator();
 
                 if (data.status === 'success') {
-                    // Gerçek kullanılan agenti header'da göster
+                    // Sunucunun kullandığı gerçek agent ID'yi header'da göster
                     if (data.metadata && data.metadata.agent_id) {
                         document.getElementById('agentId').textContent = data.metadata.agent_id;
                     }
                     
-                    // AI yanıtını ekle
+                    // AI yanıtını ekrana ekle
                     addMessage('assistant', data.reply, data.metadata);
                     
-                    // Chat history'yi güncelle
+                    // Chat history'yi güncelle (SADECE LOCAL - UI için)
+                    // NOT: Bu sunucuya gönderilmez, sadece frontend'de tutulur
                     chatHistory.push({
                         role: 'user',
                         content: message
@@ -563,6 +590,10 @@
 
         // Agent Modal Functions
         // YAZAN: Frontend Developer
+        /**
+         * Sunucudan mevcut agent listesini yükler
+         * Agent seçim modalı açıldığında çağrılır
+         */
         async function loadAgents() {
             try {
                 agentListElement.innerHTML = '<div class="loading">Agent\'lar yükleniyor...</div>';
@@ -582,6 +613,10 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * Yüklenmiş agent listesini modal içinde render eder
+         * Her agent için tıklanabilir kart oluşturur
+         */
         function renderAgentList() {
             if (availableAgents.length === 0) {
                 agentListElement.innerHTML = '<div class="loading">Henüz agent bulunmuyor</div>';
@@ -607,10 +642,17 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * Yeni bir agent seçildiğinde çağrılır
+         * @param {string} newAgentId - Seçilen agent'in ID'si
+         * 
+         * NOT: Agent değiştiğinde chat history temizlenir
+         * Çünkü farklı agent = farklı oturum
+         */
         function selectAgent(newAgentId) {
             agentId = newAgentId;
             agentIdElement.textContent = newAgentId;
-            chatHistory = []; // Yeni agent için history'yi sıfırla
+            chatHistory = []; // Yeni agent için history'yi sıfırla (frontend-only)
             closeAgentModal();
 
             // Mesaj listesini temizle
@@ -624,12 +666,18 @@
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * Agent seçim modalını açar ve agent listesini yükler
+         */
         function openAgentModal() {
             agentModal.classList.add('active');
             loadAgents();
         }
 
         // YAZAN: Frontend Developer
+        /**
+         * Agent seçim modalını kapatır
+         */
         function closeAgentModal() {
             agentModal.classList.remove('active');
         }
