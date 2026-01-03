@@ -377,7 +377,7 @@
             <div class="config-info">
                 <div class="config-item">
                     <span class="config-label">Agent ID:</span>
-                    <span id="agentId" class="agent-id-clickable" title="Agent değiştirmek için tıklayın">agent_8823_xyz</span>
+                    <span id="agentId" class="agent-id-clickable" title="Agent değiştirmek için tıklayın">Yükleniyor...</span>
                 </div>
                 <div class="config-item">
                     <span class="config-label">Session ID:</span>
@@ -436,7 +436,7 @@
         const agentListElement = document.getElementById('agentList');
 
         // Global state değişkenleri
-        let agentId = agentIdElement.textContent;  // Aktif agent ID
+        let agentId = null;  // Aktif agent ID (API'den yüklenecek)
         let chatHistory = [];  // LOCAL (sadece UI'da tutulur, sunucuya GÖNDERİLMEZ)
         let availableAgents = [];  // Mevcut agent listesi
 
@@ -530,6 +530,12 @@
             const message = messageInput.value.trim();
             if (!message) return;
 
+            // Agent ID kontrolü
+            if (!agentId) {
+                addMessage('assistant', '⏳ Lütfen agent yüklenmesini bekleyin...');
+                return;
+            }
+
             // Kullanıcı mesajını ekle
             addMessage('user', message);
             messageInput.value = '';
@@ -592,23 +598,40 @@
         // YAZAN: Frontend Developer
         /**
          * Sunucudan mevcut agent listesini yükler
-         * Agent seçim modalı açıldığında çağrılır
+         * @param {boolean} selectFirst - İlk agent'ı otomatik seç (varsayılan: false, modal için)
          */
-        async function loadAgents() {
+        async function loadAgents(selectFirst = false) {
             try {
-                agentListElement.innerHTML = '<div class="loading">Agent\'lar yükleniyor...</div>';
+                if (!selectFirst) {
+                    agentListElement.innerHTML = '<div class="loading">Agent\'lar yükleniyor...</div>';
+                }
 
                 const response = await fetch(AGENTS_API_URL);
                 const data = await response.json();
 
-                if (data.status === 'success' && data.agents) {
+                if (data.status === 'success' && data.agents && data.agents.length > 0) {
                     availableAgents = data.agents;
-                    renderAgentList();
+                    
+                    if (selectFirst) {
+                        // İlk agent'ı otomatik seç
+                        selectAgent(data.agents[0].agent_id);
+                    } else {
+                        renderAgentList();
+                    }
                 } else {
-                    agentListElement.innerHTML = '<div class="loading">❌ Agent listesi yüklenemedi</div>';
+                    if (selectFirst) {
+                        agentIdElement.textContent = '❌ Agent bulunamadı';
+                    } else {
+                        agentListElement.innerHTML = '<div class="loading">❌ Agent listesi yüklenemedi</div>';
+                    }
                 }
             } catch (error) {
-                agentListElement.innerHTML = `<div class="loading">❌ Hata: ${error.message}</div>`;
+                if (selectFirst) {
+                    agentIdElement.textContent = '❌ Yükleme hatası';
+                    console.error('Agent yükleme hatası:', error);
+                } else {
+                    agentListElement.innerHTML = `<div class="loading">❌ Hata: ${error.message}</div>`;
+                }
             }
         }
 
@@ -701,9 +724,12 @@
             }
         });
 
-        // Focus input on load
+        // Sayfa yüklendiğinde agent listesini çek ve ilk agent'ı seç
         // YAZAN: Frontend Developer
-        messageInput.focus();
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadAgents(true); // İlk agent'ı otomatik seç
+            messageInput.focus();
+        });
     </script>
 </body>
 </html>
